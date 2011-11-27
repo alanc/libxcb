@@ -31,6 +31,9 @@ finished_serializers = []
 finished_sizeof = []
 finished_switch = []
 
+# keeps enum objects so that we can refer to them when generating manpages.
+enums = {}
+
 def _h(fmt, *args):
     '''
     Writes the given line to the header file.
@@ -246,6 +249,8 @@ def c_enum(self, name):
     '''
     Exported function that handles enum declarations.
     '''
+
+    enums[name] = self
 
     tname = _t(name)
     if namecount[tname] > 1:
@@ -2201,6 +2206,303 @@ def _c_cookie(self, name):
     _h('    unsigned int sequence; /**<  */')
     _h('} %s;', self.c_cookie_type)
 
+def _man_request(self, name, cookie_type, void, aux):
+    param_fields = [f for f in self.fields if f.visible]
+
+    func_name = self.c_request_name if not aux else self.c_aux_name
+    f = open('/tmp/man/%s.3' % func_name, 'w')
+    # TODO: use the file modification date of the xproto?
+    f.write('.TH %s 3  %s "XCB" "X C Bindings"\n' % (func_name, 'today'))
+    # Left-adjust instead of adjusting to both sides
+    f.write('.ad l\n')
+    f.write('.SH NAME\n')
+    brief = self.doc.brief if self.doc else ''
+    f.write('%s \\- %s\n' % (func_name, brief))
+    f.write('.SH SYNOPSIS\n')
+    # Don't split words (hyphenate)
+    f.write('.hy 0\n')
+    f.write('.B #include <xcb/%s.h>\n' % _ns.header)
+    if self.doc:
+        for header in self.doc.needs_headers:
+            f.write('\n')
+            f.write('.B #include <xcb/%s>\n' % header)
+
+    # function prototypes
+    prototype = ''
+    count = len(param_fields)
+    for field in param_fields:
+        count = count - 1
+        c_field_const_type = field.c_field_const_type
+        c_pointer = field.c_pointer
+        if c_pointer == ' ':
+            c_pointer = ''
+        if field.type.need_serialize and not aux:
+            c_field_const_type = "const void"
+            c_pointer = '*'
+        comma = ', ' if count else ');'
+        prototype += '%s %s\\fI%s\\fP%s' % (c_field_const_type, c_pointer, field.c_field_name, comma)
+
+    f.write('.SS Request function\n')
+    f.write('.HP\n')
+    base_func_name = self.c_request_name if not aux else self.c_aux_name
+    f.write('%s \\fB%s\\fP(xcb_connection_t *\\fIconn\\fP, %s\n' % (cookie_type, base_func_name, prototype))
+# TODO: refer to this function 'RETURN VALUE' instead
+    #f.write('.HP\n')
+    #f.write('%s %s_%s\\^(\\^xcb_connection_t *\\fIc\\fP\\^, %s\n' % (cookie_type, base_func_name, ('checked' if void else 'unchecked'), prototype))
+    if not void:
+        f.write('.PP\n')
+        f.write('.SS Reply datastructure\n')
+        f.write('.nf\n')
+        f.write('.sp\n')
+        f.write('typedef %s %s {\n' % (self.reply.c_container, self.reply.c_type))
+        struct_fields = []
+        maxtypelen = 0
+
+        for field in self.reply.fields:
+            if not field.type.fixed_size() and not self.is_switch and not self.is_union:
+                continue
+            if field.wire:
+                struct_fields.append(field)
+
+        for field in struct_fields:
+            length = len(field.c_field_type)
+            # account for '*' pointer_spec
+            if not field.type.fixed_size():
+                length += 1
+            maxtypelen = max(maxtypelen, length)
+
+        def _c_complex_field(self, field, space=''):
+            if (field.type.fixed_size() or
+                # in case of switch with switch children, don't make the field a pointer
+                # necessary for unserialize to work
+                (self.is_switch and field.type.is_switch)):
+                spacing = ' ' * (maxtypelen - len(field.c_field_type))
+                f.write('%s    %s%s \\fI%s\\fP%s;\n' % (space, field.c_field_type, spacing, field.c_field_name, field.c_subscript))
+            else:
+                spacing = ' ' * (maxtypelen - (len(field.c_field_type) + 1))
+                f.write('ELSE %s = %s\n' % (field.c_field_type, field.c_field_name))
+                #_h('%s    %s%s *%s%s; /**<  */', space, field.c_field_type, spacing, field.c_field_name, field.c_subscript)
+
+        if not self.is_switch:
+            for field in struct_fields:
+                _c_complex_field(self, field)
+        else:
+            for b in self.bitcases:
+                space = ''
+                if b.type.has_name:
+                    print 'uh, really here with %s' % b.c_field_name
+                    space = '    '
+                for field in b.type.fields:
+                    _c_complex_field(self, field, space)
+                if b.type.has_name:
+                    print 'aha with ' % b.c_field_name
+                    #_h('    } %s;', b.c_field_name)
+        f.write('} \\fB%s\\fP;\n' % self.reply.c_type)
+        f.write('.fi\n')
+
+        f.write('.SS Reply function\n')
+        f.write('.HP\n')
+        f.write('%s *\\fB%s\\fP(xcb_connection_t *\\fIconn\\fP, %s \\fIcookie\\fP, xcb_generic_error_t **\\fIe\\fP);\n' %
+                (self.c_reply_type, self.c_reply_name, self.c_cookie_type))
+
+        has_accessors = False
+        for field in self.reply.fields:
+            if field.type.is_list and not field.type.fixed_size():
+                has_accessors = True
+            elif field.prev_varsized_field is not None or not field.type.fixed_size():
+                has_accessors = True
+
+
+        if has_accessors:
+            f.write('.SS Reply accesors\n')
+        # TODO: create link manpage for the type and reply function name
+        def _c_accessors_field(self, field):
+            '''
+            Declares the accessor functions for a non-list field that follows a variable-length field.
+            '''
+            c_type = self.c_type
+
+            # special case: switch
+            switch_obj = self if self.is_switch else None
+            if self.is_bitcase:
+                switch_obj = self.parents[-1]
+            if switch_obj is not None:
+                c_type = switch_obj.c_type
+
+            if field.type.is_simple:
+                f.write('%s %s (const %s *reply)\n' % (field.c_field_type, field.c_accessor_name, field.c_type))
+            else:
+                f.write('%s *%s (const %s *reply)\n' % (field.c_field_type, field.c_accessor_name, filed.c_type))
+
+        def _c_accessors_list(self, field):
+            '''
+            Declares the accessor functions for a list field.
+            Declares a direct-accessor function only if the list members are fixed size.
+            Declares length and get-iterator functions always.
+            '''
+            list = field.type
+            c_type = self.reply.c_type
+
+            # special case: switch
+            # in case of switch, 2 params have to be supplied to certain accessor functions:
+            #   1. the anchestor object (request or reply)
+            #   2. the (anchestor) switch object
+            # the reason is that switch is either a child of a request/reply or nested in another switch,
+            # so whenever we need to access a length field, we might need to refer to some anchestor type
+            switch_obj = self if self.is_switch else None
+            if self.is_bitcase:
+                switch_obj = self.parents[-1]
+            if switch_obj is not None:
+                c_type = switch_obj.c_type
+
+            params = []
+            fields = {}
+            parents = self.parents if hasattr(self, 'parents') else [self]
+            # 'R': parents[0] is always the 'toplevel' container type
+            params.append(('const %s *\\fIreply\\fP' % parents[0].c_type, parents[0]))
+            fields.update(_c_helper_field_mapping(parents[0], [('R', '->', parents[0])], flat=True))
+            # auxiliary object for 'R' parameters
+            R_obj = parents[0]
+
+            if switch_obj is not None:
+                # now look where the fields are defined that are needed to evaluate
+                # the switch expr, and store the parent objects in accessor_params and
+                # the fields in switch_fields
+
+                # 'S': name for the 'toplevel' switch
+                toplevel_switch = parents[1]
+                params.append(('const %s *S' % toplevel_switch.c_type, toplevel_switch))
+                fields.update(_c_helper_field_mapping(toplevel_switch, [('S', '->', toplevel_switch)], flat=True))
+
+                # initialize prefix for everything "below" S
+                prefix_str = '/* %s */ S' % toplevel_switch.name[-1]
+                prefix = [(prefix_str, '->', toplevel_switch)]
+
+                # look for fields in the remaining containers
+                for p in parents[2:] + [self]:
+                    # the separator between parent and child is always '.' here,
+                    # because of nested switch statements
+                    if not p.is_bitcase or (p.is_bitcase and p.has_name):
+                        prefix.append((p.name[-1], '.', p))
+                    fields.update(_c_helper_field_mapping(p, prefix, flat=True))
+
+                # auxiliary object for 'S' parameter
+                S_obj = parents[1]
+
+            if list.member.fixed_size():
+                idx = 1 if switch_obj is not None else 0
+                f.write('.HP\n')
+                f.write('%s *\\fB%s\\fP(%s);\n' %
+                        (field.c_field_type, field.c_accessor_name, params[idx][0]))
+
+            f.write('.HP\n')
+            f.write('int \\fB%s\\fP(const %s *\\fIreply\\fP);\n' %
+                    (field.c_length_name, c_type))
+
+            if field.type.member.is_simple:
+                f.write('.HP\n')
+                f.write('xcb_generic_iterator_t \\fB%s\\fP(const %s *\\fIreply\\fP);\n' %
+                        (field.c_end_name, c_type))
+            else:
+                f.write('.HP\n')
+                f.write('%s \\fB%s\\fP(const %s *\\fIreply\\fP);\n' %
+                        (field.c_iterator_type, field.c_iterator_name,
+                         c_type))
+
+        for field in self.reply.fields:
+            if field.type.is_list and not field.type.fixed_size():
+                _c_accessors_list(self, field)
+            elif field.prev_varsized_field is not None or not field.type.fixed_size():
+                _c_accessors_field(self, field)
+
+
+    f.write('.br\n')
+    # Re-enable hyphenation and adjusting to both sides
+    f.write('.hy 1\n')
+
+    # argument reference
+    f.write('.SH REQUEST ARGUMENTS\n')
+    f.write('.IP \\fI%s\\fP 1i\n' % 'conn')
+    f.write('The XCB connection to X11.\n')
+    for field in param_fields:
+        f.write('.IP \\fI%s\\fP 1i\n' % (field.c_field_name))
+        printed_enum = False
+        if field.enum:
+            print 'ENUM! name = %s, enum = %s' % (field.field_name, field.enum)
+            # XXX: why the 'xcb' prefix?
+            key = ('xcb', field.enum)
+            if key in enums:
+                f.write('One of the following values:\n')
+                f.write('.RS 1i\n')
+                enum = enums[key]
+                count = len(enum.values)
+                for (enam, eval) in enum.values:
+                    count = count - 1
+                    f.write('.IP \\fI%s\\fP 1i\n' % (_n(key + (enam,)).upper()))
+                    f.write('blah blah.\n')
+                f.write('.RE\n')
+                f.write('.RS 1i\n')
+                printed_enum = True
+
+        if self.doc and field.field_name in self.doc.fields:
+            desc = self.doc.fields[field.field_name]
+            desc = re.sub(r'`([^`]+)`', r'\\fI\1\\fP', desc)
+            f.write('%s\n' % desc)
+        else:
+            f.write('NOT YET DOCUMENTED.\n')
+        if printed_enum:
+            f.write('.RE\n')
+
+    # Reply reference
+
+    # text description
+    f.write('.SH DESCRIPTION\n')
+    if self.doc and self.doc.description:
+        # XXX: this will probably require some formatting in the future
+        desc = self.doc.description
+        desc = re.sub(r'`([^`]+)`', r'\\fI\1\\fP', desc)
+        lines = desc.split('\n')
+        f.write('\n'.join(lines) + '\n')
+
+    f.write('.SH RETURN VALUE\n')
+    f.write('TODO: not yet generated\n')
+    f.write('.SH ERRORS\n')
+    if self.doc:
+        for errtype, errtext in self.doc.errors.iteritems():
+            f.write('.IP \\fI%s\\fP 1i\n' % (_t(('xcb', errtype, 'error'))))
+            errtext = re.sub(r'`([^`]+)`', r'\\fI\1\\fP', errtext)
+            f.write('%s\n' % (errtext))
+    if not self.doc or len(self.doc.errors) == 0:
+        f.write('This request does never generate any errors.\n')
+    if self.doc and self.doc.example:
+        f.write('.SH EXAMPLE\n')
+        f.write('.nf\n')
+        f.write('.sp\n')
+        # XXX: this will probably require some formatting in the future
+        lines = self.doc.example.split('\n')
+        f.write('\n'.join(lines) + '\n')
+        f.write('.fi\n')
+    f.write('.SH SEE ALSO\n')
+    if self.doc:
+        see = []
+        for seename, seetype in self.doc.see.iteritems():
+            if seetype == 'program':
+                see.append('.BR %s (1)' % seename)
+            elif seetype == 'event':
+                see.append('.BR %s (3)' % _t(('xcb', seename, 'event')))
+            elif seetype == 'request':
+                see.append('.BR %s (3)' % _n(('xcb', seename)))
+            elif seetype == 'function':
+                see.append('.BR %s (3)' % seename)
+            else:
+                see.append('TODO: %s (type %s)' % (seename, seetype))
+        f.write(',\n'.join(see) + '\n')
+    f.write('.SH AUTHOR\n')
+    f.write('Generated from %s.xml. Contact xcb@lists.freedesktop.org for corrections and improvements.' % _ns.header)
+    f.close()
+
+
+
 def c_request(self, name):
     '''
     Exported function that handles request declarations.
@@ -2238,6 +2540,10 @@ def c_request(self, name):
             _c_request_helper(self, name, 'xcb_void_cookie_t', True, False, True)
             _c_request_helper(self, name, 'xcb_void_cookie_t', True, True, True)
 
+    # We generate the manpage afterwards because _c_type_setup has been called.
+# TODO: aux
+    cookie_type = self.c_cookie_type if self.reply else 'xcb_void_cookie_t'
+    _man_request(self, name, cookie_type, not self.reply, False)
 
 def c_event(self, name):
     '''
