@@ -2427,6 +2427,13 @@ def _man_request(self, name, cookie_type, void, aux):
     for field in param_fields:
         f.write('.IP \\fI%s\\fP 1i\n' % (field.c_field_name))
         printed_enum = False
+        # XXX: hard-coded until we fix xproto.xml
+        if base_func_name == 'xcb_change_gc' and field.c_field_name == 'value_mask':
+            field.enum = 'GC'
+        elif base_func_name == 'xcb_change_window_attributes' and field.c_field_name == 'value_mask':
+            field.enum = 'CW'
+        elif base_func_name == 'xcb_create_window' and field.c_field_name == 'value_mask':
+            field.enum = 'CW'
         if field.enum:
             print 'ENUM! name = %s, enum = %s' % (field.field_name, field.enum)
             # XXX: why the 'xcb' prefix?
