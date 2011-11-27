@@ -2446,7 +2446,11 @@ def _man_request(self, name, cookie_type, void, aux):
                 for (enam, eval) in enum.values:
                     count = count - 1
                     f.write('.IP \\fI%s\\fP 1i\n' % (_n(key + (enam,)).upper()))
-                    f.write('blah blah.\n')
+                    if enum.doc and enam in enum.doc.fields:
+                        desc = re.sub(r'`([^`]+)`', r'\\fI\1\\fP', enum.doc.fields[enam])
+                        f.write('%s\n' % desc)
+                    else:
+                        f.write('NOT YET DOCUMENTED.\n')
                 f.write('.RE\n')
                 f.write('.RS 1i\n')
                 printed_enum = True
