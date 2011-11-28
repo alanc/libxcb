@@ -2240,12 +2240,12 @@ def _man_request(self, name, cookie_type, void, aux):
             c_field_const_type = "const void"
             c_pointer = '*'
         comma = ', ' if count else ');'
-        prototype += '%s %s\\fI%s\\fP%s' % (c_field_const_type, c_pointer, field.c_field_name, comma)
+        prototype += '%s\\ %s\\fI%s\\fP%s' % (c_field_const_type, c_pointer, field.c_field_name, comma)
 
     f.write('.SS Request function\n')
     f.write('.HP\n')
     base_func_name = self.c_request_name if not aux else self.c_aux_name
-    f.write('%s \\fB%s\\fP(xcb_connection_t *\\fIconn\\fP, %s\n' % (cookie_type, base_func_name, prototype))
+    f.write('%s \\fB%s\\fP(xcb_connection_t\\ *\\fIconn\\fP, %s\n' % (cookie_type, base_func_name, prototype))
 # TODO: refer to this function 'RETURN VALUE' instead
     #f.write('.HP\n')
     #f.write('%s %s_%s\\^(\\^xcb_connection_t *\\fIc\\fP\\^, %s\n' % (cookie_type, base_func_name, ('checked' if void else 'unchecked'), prototype))
@@ -2302,7 +2302,7 @@ def _man_request(self, name, cookie_type, void, aux):
 
         f.write('.SS Reply function\n')
         f.write('.HP\n')
-        f.write('%s *\\fB%s\\fP(xcb_connection_t *\\fIconn\\fP, %s \\fIcookie\\fP, xcb_generic_error_t **\\fIe\\fP);\n' %
+        f.write('%s *\\fB%s\\fP(xcb_connection_t\\ *\\fIconn\\fP, %s\\ \\fIcookie\\fP, xcb_generic_error_t\\ **\\fIe\\fP);\n' %
                 (self.c_reply_type, self.c_reply_name, self.c_cookie_type))
 
         has_accessors = False
@@ -2458,6 +2458,8 @@ def _man_request(self, name, cookie_type, void, aux):
         if self.doc and field.field_name in self.doc.fields:
             desc = self.doc.fields[field.field_name]
             desc = re.sub(r'`([^`]+)`', r'\\fI\1\\fP', desc)
+            if printed_enum:
+                f.write('\n')
             f.write('%s\n' % desc)
         else:
             f.write('NOT YET DOCUMENTED.\n')
