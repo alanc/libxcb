@@ -35,6 +35,8 @@ finished_switch = []
 # keeps enum objects so that we can refer to them when generating manpages.
 enums = {}
 
+manpaths = False
+
 def _h(fmt, *args):
     '''
     Writes the given line to the header file.
@@ -2213,9 +2215,17 @@ def _man_request(self, name, cookie_type, void, aux):
     func_name = self.c_request_name if not aux else self.c_aux_name
 
     def create_link(linkname):
-        os.symlink('/tmp/man/%s.3' % func_name, '/tmp/man/%s.3' % linkname)
+        name = 'man/%s.3' % linkname
+        if manpaths:
+            sys.stdout.write(name)
+        f = open(name, 'w')
+        f.write('.so man3/%s.3' % func_name)
+        f.close()
 
-    f = open('/tmp/man/%s.3' % func_name, 'w')
+    if manpaths:
+        sys.stdout.write('man/%s.3 ' % func_name)
+    # Our CWD is src/, so this will end up in src/man/
+    f = open('man/%s.3' % func_name, 'w')
     # TODO: use the file modification date of the xproto?
     f.write('.TH %s 3  %s "XCB" "XCB Requests"\n' % (func_name, 'today'))
     # Left-adjust instead of adjusting to both sides
@@ -2296,12 +2306,13 @@ def _man_request(self, name, cookie_type, void, aux):
             for b in self.bitcases:
                 space = ''
                 if b.type.has_name:
-                    print 'uh, really here with %s' % b.c_field_name
                     space = '    '
                 for field in b.type.fields:
                     _c_complex_field(self, field, space)
                 if b.type.has_name:
-                    print 'aha with ' % b.c_field_name
+                    pass
+# XXX
+                    #print 'aha with ' % b.c_field_name
                     #_h('    } %s;', b.c_field_name)
         f.write('} \\fB%s\\fP;\n' % self.reply.c_type)
         f.write('.fi\n')
@@ -2337,10 +2348,10 @@ def _man_request(self, name, cookie_type, void, aux):
                 c_type = switch_obj.c_type
 
             if field.type.is_simple:
-                f.write('%s %s (const %s *reply)\n' % (field.c_field_type, field.c_accessor_name, field.c_type))
+                f.write('%s %s (const %s *reply)\n' % (field.c_field_type, field.c_accessor_name, c_type))
                 create_link('%s' % field.c_accessor_name)
             else:
-                f.write('%s *%s (const %s *reply)\n' % (field.c_field_type, field.c_accessor_name, filed.c_type))
+                f.write('%s *%s (const %s *reply)\n' % (field.c_field_type, field.c_accessor_name, c_type))
                 create_link('%s' % field.c_accessor_name)
 
         def _c_accessors_list(self, field):
@@ -2448,7 +2459,6 @@ def _man_request(self, name, cookie_type, void, aux):
         elif base_func_name == 'xcb_create_window' and field.c_field_name == 'value_mask':
             field.enum = 'CW'
         if field.enum:
-            print 'ENUM! name = %s, enum = %s' % (field.field_name, field.enum)
             # XXX: why the 'xcb' prefix?
             key = ('xcb', field.enum)
             if key in enums:
@@ -2624,7 +2634,7 @@ output = {'open'    : c_open,
 
 # Check for the argument that specifies path to the xcbgen python package.
 try:
-    opts, args = getopt.getopt(sys.argv[1:], 'p:')
+    opts, args = getopt.getopt(sys.argv[1:], 'p:m')
 except getopt.GetoptError as err:
     print(err)
     print('Usage: c_client.py [-p path] file.xml')
@@ -2633,6 +2643,9 @@ except getopt.GetoptError as err:
 for (opt, arg) in opts:
     if opt == '-p':
         sys.path.insert(1, arg)
+    elif opt == '-m':
+        manpaths = True
+        sys.stdout.write('man_MANS = ')
 
 # Import the module class
 try:
@@ -2646,6 +2659,10 @@ to extend the path.
 Refer to the README file in xcb/proto for more info.
 ''')
     raise
+
+# Ensure the man subdirectory exists
+if not os.path.exists('man'):
+    os.mkdir('man')
 
 # Parse the xml header
 module = Module(args[0], output)
