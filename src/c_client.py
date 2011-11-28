@@ -3,6 +3,7 @@ from xml.etree.cElementTree import *
 from os.path import basename
 from functools import reduce
 import getopt
+import os
 import sys
 import re
 
@@ -2210,9 +2211,13 @@ def _man_request(self, name, cookie_type, void, aux):
     param_fields = [f for f in self.fields if f.visible]
 
     func_name = self.c_request_name if not aux else self.c_aux_name
+
+    def create_link(linkname):
+        os.symlink('/tmp/man/%s.3' % func_name, '/tmp/man/%s.3' % linkname)
+
     f = open('/tmp/man/%s.3' % func_name, 'w')
     # TODO: use the file modification date of the xproto?
-    f.write('.TH %s 3  %s "XCB" "X C Bindings"\n' % (func_name, 'today'))
+    f.write('.TH %s 3  %s "XCB" "XCB Requests"\n' % (func_name, 'today'))
     # Left-adjust instead of adjusting to both sides
     f.write('.ad l\n')
     f.write('.SH NAME\n')
@@ -2249,6 +2254,7 @@ def _man_request(self, name, cookie_type, void, aux):
 # TODO: refer to this function 'RETURN VALUE' instead
     #f.write('.HP\n')
     #f.write('%s %s_%s\\^(\\^xcb_connection_t *\\fIc\\fP\\^, %s\n' % (cookie_type, base_func_name, ('checked' if void else 'unchecked'), prototype))
+    create_link('%s_%s' % (base_func_name, ('checked' if void else 'unchecked')))
     if not void:
         f.write('.PP\n')
         f.write('.SS Reply datastructure\n')
@@ -2304,6 +2310,7 @@ def _man_request(self, name, cookie_type, void, aux):
         f.write('.HP\n')
         f.write('%s *\\fB%s\\fP(xcb_connection_t\\ *\\fIconn\\fP, %s\\ \\fIcookie\\fP, xcb_generic_error_t\\ **\\fIe\\fP);\n' %
                 (self.c_reply_type, self.c_reply_name, self.c_cookie_type))
+        create_link('%s' % self.c_reply_name)
 
         has_accessors = False
         for field in self.reply.fields:
@@ -2331,8 +2338,10 @@ def _man_request(self, name, cookie_type, void, aux):
 
             if field.type.is_simple:
                 f.write('%s %s (const %s *reply)\n' % (field.c_field_type, field.c_accessor_name, field.c_type))
+                create_link('%s' % field.c_accessor_name)
             else:
                 f.write('%s *%s (const %s *reply)\n' % (field.c_field_type, field.c_accessor_name, filed.c_type))
+                create_link('%s' % field.c_accessor_name)
 
         def _c_accessors_list(self, field):
             '''
@@ -2394,20 +2403,24 @@ def _man_request(self, name, cookie_type, void, aux):
                 f.write('.HP\n')
                 f.write('%s *\\fB%s\\fP(%s);\n' %
                         (field.c_field_type, field.c_accessor_name, params[idx][0]))
+                create_link('%s' % field.c_accessor_name)
 
             f.write('.HP\n')
             f.write('int \\fB%s\\fP(const %s *\\fIreply\\fP);\n' %
                     (field.c_length_name, c_type))
+            create_link('%s' % field.c_length_name)
 
             if field.type.member.is_simple:
                 f.write('.HP\n')
                 f.write('xcb_generic_iterator_t \\fB%s\\fP(const %s *\\fIreply\\fP);\n' %
                         (field.c_end_name, c_type))
+                create_link('%s' % field.c_end_name)
             else:
                 f.write('.HP\n')
                 f.write('%s \\fB%s\\fP(const %s *\\fIreply\\fP);\n' %
                         (field.c_iterator_type, field.c_iterator_name,
                          c_type))
+                create_link('%s' % field.c_iterator_name)
 
         for field in self.reply.fields:
             if field.type.is_list and not field.type.fixed_size():
