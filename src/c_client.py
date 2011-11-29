@@ -2473,7 +2473,7 @@ def _man_request(self, name, cookie_type, void, aux):
                         desc = re.sub(r'`([^`]+)`', r'\\fI\1\\fP', enum.doc.fields[enam])
                         f.write('%s\n' % desc)
                     else:
-                        f.write('NOT YET DOCUMENTED.\n')
+                        f.write('TODO: NOT YET DOCUMENTED.\n')
                 f.write('.RE\n')
                 f.write('.RS 1i\n')
                 printed_enum = True
@@ -2485,7 +2485,7 @@ def _man_request(self, name, cookie_type, void, aux):
                 f.write('\n')
             f.write('%s\n' % desc)
         else:
-            f.write('NOT YET DOCUMENTED.\n')
+            f.write('TODO: NOT YET DOCUMENTED.\n')
         if printed_enum:
             f.write('.RE\n')
 
