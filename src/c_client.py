@@ -2534,7 +2534,7 @@ def _man_request(self, name, cookie_type, void, aux):
                 see.append('TODO: %s (type %s)' % (seename, seetype))
         f.write(',\n'.join(see) + '\n')
     f.write('.SH AUTHOR\n')
-    f.write('Generated from %s.xml. Contact xcb@lists.freedesktop.org for corrections and improvements.' % _ns.header)
+    f.write('Generated from %s.xml. Contact xcb@lists.freedesktop.org for corrections and improvements.\n' % _ns.header)
     f.close()
 
 
