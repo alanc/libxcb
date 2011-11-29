@@ -2332,7 +2332,7 @@ def _man_request(self, name, cookie_type, void, aux):
 
 
         if has_accessors:
-            f.write('.SS Reply accesors\n')
+            f.write('.SS Reply accessors\n')
         # TODO: create link manpage for the type and reply function name
         def _c_accessors_field(self, field):
             '''
