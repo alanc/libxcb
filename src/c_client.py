@@ -269,7 +269,10 @@ def c_enum(self, name):
         count = count - 1
         equals = ' = ' if eval != '' else ''
         comma = ',' if count > 0 else ''
-        _h('    %s%s%s%s', _n(name + (enam,)).upper(), equals, eval, comma)
+        doc = ''
+        if self.doc and enam in self.doc.fields:
+            doc = '\n/**< %s */\n' % self.doc.fields[enam]
+        _h('    %s%s%s%s%s', _n(name + (enam,)).upper(), equals, eval, comma, doc)
 
     _h('} %s;', tname)
 
@@ -1886,11 +1889,58 @@ def _c_request_helper(self, name, cookie_type, void, regular, aux=False):
     _c_setlevel(1)
     _h('')
     _h('/**')
-    _h(' * Delivers a request to the X server')
+    if self.doc:
+        if self.doc.brief:
+            _h(' * @brief ' + self.doc.brief)
+        else:
+            _h(' * No brief doc yet')
+
+    _h(' *')
     _h(' * @param c The connection')
+    param_names = [f.c_field_name for f in param_fields]
+    if self.doc:
+        for field in param_fields:
+            # XXX: hard-coded until we fix xproto.xml
+            base_func_name = self.c_request_name if not aux else self.c_aux_name
+            if base_func_name == 'xcb_change_gc' and field.c_field_name == 'value_mask':
+                field.enum = 'GC'
+            elif base_func_name == 'xcb_change_window_attributes' and field.c_field_name == 'value_mask':
+                field.enum = 'CW'
+            elif base_func_name == 'xcb_create_window' and field.c_field_name == 'value_mask':
+                field.enum = 'CW'
+            if field.enum:
+                # XXX: why the 'xcb' prefix?
+                key = ('xcb', field.enum)
+
+                tname = _t(key)
+                if namecount[tname] > 1:
+                    tname = _t(key + ('enum',))
+                _h(' * @param %s A bitmask of #%s values.' % (field.c_field_name, tname))
+
+            if self.doc and field.field_name in self.doc.fields:
+                desc = self.doc.fields[field.field_name]
+                for name in param_names:
+                    desc = desc.replace('`%s`' % name, '\\a %s' % (name))
+                desc = desc.split("\n")
+                desc = [line if line != '' else '\\n' for line in desc]
+                _h(' * @param %s %s' % (field.c_field_name, "\n * ".join(desc)))
+            # If there is no documentation yet, we simply don't generate an
+            # @param tag. Doxygen will then warn about missing documentation.
+
     _h(' * @return A cookie')
     _h(' *')
-    _h(' * Delivers a request to the X server.')
+
+    if self.doc:
+        if self.doc.description:
+            desc = self.doc.description
+            for name in param_names:
+                desc = desc.replace('`%s`' % name, '\\a %s' % (name))
+            desc = desc.split("\n")
+            _h(' * ' + "\n * ".join(desc))
+        else:
+            _h(' * No description yet')
+    else:
+        _h(' * Delivers a request to the X server.')
     _h(' * ')
     if checked:
         _h(' * This form can be used only if the request will not cause')
