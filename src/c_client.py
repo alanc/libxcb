@@ -2587,6 +2587,141 @@ def _man_request(self, name, cookie_type, void, aux):
     f.write('Generated from %s.xml. Contact xcb@lists.freedesktop.org for corrections and improvements.\n' % _ns.header)
     f.close()
 
+def _man_event(self, name):
+    if manpaths:
+        sys.stdout.write('man/%s.3 ' % self.c_type)
+    # Our CWD is src/, so this will end up in src/man/
+    f = open('man/%s.3' % self.c_type, 'w')
+    # TODO: use the file modification date of the xproto?
+    f.write('.TH %s 3  %s "XCB" "XCB Events"\n' % (self.c_type, 'today'))
+    # Left-adjust instead of adjusting to both sides
+    f.write('.ad l\n')
+    f.write('.SH NAME\n')
+    brief = self.doc.brief if self.doc else ''
+    f.write('%s \\- %s\n' % (self.c_type, brief))
+    f.write('.SH SYNOPSIS\n')
+    # Don't split words (hyphenate)
+    f.write('.hy 0\n')
+    f.write('.B #include <xcb/%s.h>\n' % _ns.header)
+    if self.doc:
+        for header in self.doc.needs_headers:
+            f.write('\n')
+            f.write('.B #include <xcb/%s>\n' % header)
+
+    f.write('.PP\n')
+    f.write('.SS Event datastructure\n')
+    f.write('.nf\n')
+    f.write('.sp\n')
+    f.write('typedef %s %s {\n' % (self.c_container, self.c_type))
+    struct_fields = []
+    maxtypelen = 0
+
+    for field in self.fields:
+        if not field.type.fixed_size() and not self.is_switch and not self.is_union:
+            continue
+        if field.wire:
+            struct_fields.append(field)
+
+    for field in struct_fields:
+        length = len(field.c_field_type)
+        # account for '*' pointer_spec
+        if not field.type.fixed_size():
+            length += 1
+        maxtypelen = max(maxtypelen, length)
+
+    def _c_complex_field(self, field, space=''):
+        if (field.type.fixed_size() or
+            # in case of switch with switch children, don't make the field a pointer
+            # necessary for unserialize to work
+            (self.is_switch and field.type.is_switch)):
+            spacing = ' ' * (maxtypelen - len(field.c_field_type))
+            f.write('%s    %s%s \\fI%s\\fP%s;\n' % (space, field.c_field_type, spacing, field.c_field_name, field.c_subscript))
+        else:
+            spacing = ' ' * (maxtypelen - (len(field.c_field_type) + 1))
+            f.write('ELSE %s = %s\n' % (field.c_field_type, field.c_field_name))
+            #_h('%s    %s%s *%s%s; /**<  */', space, field.c_field_type, spacing, field.c_field_name, field.c_subscript)
+
+    if not self.is_switch:
+        for field in struct_fields:
+            _c_complex_field(self, field)
+    else:
+        for b in self.bitcases:
+            space = ''
+            if b.type.has_name:
+                space = '    '
+            for field in b.type.fields:
+                _c_complex_field(self, field, space)
+            if b.type.has_name:
+                pass
+# XXX
+                #print 'aha with ' % b.c_field_name
+                #_h('    } %s;', b.c_field_name)
+    f.write('} \\fB%s\\fP;\n' % self.c_type)
+    f.write('.fi\n')
+
+
+    f.write('.br\n')
+    # Re-enable hyphenation and adjusting to both sides
+    f.write('.hy 1\n')
+
+    # argument reference
+    f.write('.SH EVENT FIELDS\n')
+    f.write('.IP \\fI%s\\fP 1i\n' % 'response_type')
+    f.write(('The type of this event, in this case \\fI%s\\fP. This field is '
+             'also present in the \\fIxcb_generic_event_t\\fP and can be used '
+             'to tell events apart from each other.\n') % _n(name).upper())
+    f.write('.IP \\fI%s\\fP 1i\n' % 'sequence')
+    f.write('The sequence number of the last request processed by the X11 server.\n')
+
+    if not self.is_switch:
+        for field in struct_fields:
+            # Skip the fields which every event has, we already documented
+            # them (see above).
+            if field.c_field_name in ('response_type', 'sequence'):
+                continue
+            f.write('.IP \\fI%s\\fP 1i\n' % (field.c_field_name))
+            if self.doc and field.field_name in self.doc.fields:
+                desc = self.doc.fields[field.field_name]
+                desc = re.sub(r'`([^`]+)`', r'\\fI\1\\fP', desc)
+                f.write('%s\n' % desc)
+            else:
+                f.write('NOT YET DOCUMENTED.\n')
+
+    # text description
+    f.write('.SH DESCRIPTION\n')
+    if self.doc and self.doc.description:
+        # XXX: this will probably require some formatting in the future
+        desc = self.doc.description
+        desc = re.sub(r'`([^`]+)`', r'\\fI\1\\fP', desc)
+        lines = desc.split('\n')
+        f.write('\n'.join(lines) + '\n')
+
+    if self.doc and self.doc.example:
+        f.write('.SH EXAMPLE\n')
+        f.write('.nf\n')
+        f.write('.sp\n')
+        # XXX: this will probably require some formatting in the future
+        lines = self.doc.example.split('\n')
+        f.write('\n'.join(lines) + '\n')
+        f.write('.fi\n')
+    f.write('.SH SEE ALSO\n')
+    if self.doc:
+        see = ['.BR %s (3)' % 'xcb_generic_event_t']
+        for seename, seetype in self.doc.see.iteritems():
+            if seetype == 'program':
+                see.append('.BR %s (1)' % seename)
+            elif seetype == 'event':
+                see.append('.BR %s (3)' % _t(('xcb', seename, 'event')))
+            elif seetype == 'request':
+                see.append('.BR %s (3)' % _n(('xcb', seename)))
+            elif seetype == 'function':
+                see.append('.BR %s (3)' % seename)
+            else:
+                see.append('TODO: %s (type %s)' % (seename, seetype))
+        f.write(',\n'.join(see) + '\n')
+    f.write('.SH AUTHOR\n')
+    f.write('Generated from %s.xml. Contact xcb@lists.freedesktop.org for corrections and improvements.\n' % _ns.header)
+    f.close()
 
 
 def c_request(self, name):
@@ -2647,6 +2782,8 @@ def c_event(self, name):
         # Typedef
         _h('')
         _h('typedef %s %s;', _t(self.name + ('event',)), _t(name + ('event',)))
+
+    _man_event(self, name)
 
 def c_error(self, name):
     '''
