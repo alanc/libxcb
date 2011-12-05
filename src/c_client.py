@@ -2679,6 +2679,8 @@ def _man_event(self, name):
             # them (see above).
             if field.c_field_name in ('response_type', 'sequence'):
                 continue
+            if isinstance(field.type, PadType):
+                continue
             f.write('.IP \\fI%s\\fP 1i\n' % (field.c_field_name))
             if self.doc and field.field_name in self.doc.fields:
                 desc = self.doc.fields[field.field_name]
@@ -2837,6 +2839,7 @@ for (opt, arg) in opts:
 # Import the module class
 try:
     from xcbgen.state import Module
+    from xcbgen.xtypes import *
 except ImportError:
     print('''
 Failed to load the xcbgen Python package!
