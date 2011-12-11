@@ -2570,7 +2570,9 @@ def _man_request(self, name, cookie_type, void, aux):
         f.write('.fi\n')
     f.write('.SH SEE ALSO\n')
     if self.doc:
-        see = []
+        see = ['.BR %s (3)' % 'xcb-requests']
+        if self.doc.example:
+            see.append('.BR %s (3)' % 'xcb-examples')
         for seename, seetype in self.doc.see.iteritems():
             if seetype == 'program':
                 see.append('.BR %s (1)' % seename)
@@ -2709,6 +2711,8 @@ def _man_event(self, name):
     f.write('.SH SEE ALSO\n')
     if self.doc:
         see = ['.BR %s (3)' % 'xcb_generic_event_t']
+        if self.doc.example:
+            see.append('.BR %s (3)' % 'xcb-examples')
         for seename, seetype in self.doc.see.iteritems():
             if seetype == 'program':
                 see.append('.BR %s (1)' % seename)
