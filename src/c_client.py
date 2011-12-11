@@ -2311,9 +2311,6 @@ def _man_request(self, name, cookie_type, void, aux):
     f.write('.HP\n')
     base_func_name = self.c_request_name if not aux else self.c_aux_name
     f.write('%s \\fB%s\\fP(xcb_connection_t\\ *\\fIconn\\fP, %s\n' % (cookie_type, base_func_name, prototype))
-# TODO: refer to this function 'RETURN VALUE' instead
-    #f.write('.HP\n')
-    #f.write('%s %s_%s\\^(\\^xcb_connection_t *\\fIc\\fP\\^, %s\n' % (cookie_type, base_func_name, ('checked' if void else 'unchecked'), prototype))
     create_link('%s_%s' % (base_func_name, ('checked' if void else 'unchecked')))
     if not void:
         f.write('.PP\n')
@@ -2551,7 +2548,19 @@ def _man_request(self, name, cookie_type, void, aux):
         f.write('\n'.join(lines) + '\n')
 
     f.write('.SH RETURN VALUE\n')
-    f.write('TODO: not yet generated\n')
+    if void:
+        f.write(('Returns an \\fIxcb_void_cookie_t\\fP. Errors (if any) '
+                 'have to be handled in the event loop.\n\nIf you want to '
+                 'handle errors directly with \\fIxcb_request_check\\fP '
+                 'instead, use \\fI%s_checked\\fP. See '
+                 '\\fBxcb-requests(3)\\fP for details.\n') % (base_func_name))
+    else:
+        f.write(('Returns an \\fI%s\\fP. Errors have to be handled when '
+                 'calling the reply function \\fI%s\\fP.\n\nIf you want to '
+                 'handle errors in the event loop instead, use '
+                 '\\fI%s_unchecked\\fP. See \\fBxcb-requests(3)\\fP for '
+                 'details.\n') %
+                (cookie_type, self.c_reply_name, base_func_name))
     f.write('.SH ERRORS\n')
     if self.doc:
         for errtype, errtext in self.doc.errors.iteritems():
